@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.log
+
+# Environments
+.venv/
+.env
+*.env
+
+# OS files
+.DS_Store
+
+# Dependency/lock files (optional)
+uv.lock
+
+# VSCode
+.vscode/
+
+# Specific logs
+discord.log
