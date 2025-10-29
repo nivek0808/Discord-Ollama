@@ -17,7 +17,22 @@ intents.members = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+# Store user model preferences (user_id -> model_name)
+user_models = {}
+
 # === Ollama Interaction ===
+def get_available_models():
+    """Fetch list of available models from Ollama."""
+    url = f"{ollama_url}/api/tags"
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        models = response.json().get("models", [])
+        return models
+    except Exception as e:
+        print(f"Error fetching models: {e}")
+        return []
+
 def call_ollama_chat(model_name, prompt):
     url = f"{ollama_url}/api/generate"
     payload = {
@@ -50,16 +65,7 @@ async def on_member_join(member):
     await member.send(f"Welcome {member.name}")
 
 # Text-Specific Moderator
-@bot.event
-async def on_message(message):
-    if message.author == bot.user:
-        return
-
-    if "shit" in message.content.lower():
-        await message.delete()
-        await message.channel.send(f"{message.author.mention} - You Better Stop That!")
-
-    await bot.process_commands(message)
+# Feature removed temporarily
 
 # Response Command
 @bot.command()
@@ -67,11 +73,68 @@ async def hello(ctx):
     await ctx.send(f"Hello {ctx.author.mention}!")
 
 # Ollama Interaction
+@bot.command(name="models")
+async def list_models(ctx):
+    """List all available Ollama models."""
+    await ctx.send("Fetching available models... 🔍")
+    
+    models = get_available_models()
+    
+    if not models:
+        await ctx.send("❌ Could not fetch models from Ollama server.")
+        return
+    
+    # Format the model list
+    model_list = "**Available Models:**\n\n"
+    for model in models:
+        name = model.get("name", "unknown")
+        size_bytes = model.get("size", 0)
+        size_gb = size_bytes / (1024**3)  # Convert to GB
+        model_list += f"• `{name}` ({size_gb:.1f} GB)\n"
+    
+    # Add current model indicator
+    model_list += f"\n**Current model:** `{ollama_model}`"
+    
+    if len(model_list) > 1990:
+        model_list = model_list[:1990] + "…"
+    
+    await ctx.send(model_list)
+
+@bot.command(name="setmodel")
+async def set_model(ctx, model_name: str):
+    """Set your preferred Ollama model."""
+    # Fetch available models to validate
+    models = get_available_models()
+    model_names = [m.get("name", "") for m in models]
+    
+    if model_name not in model_names:
+        await ctx.send(f"❌ Model `{model_name}` not found. Use `!models` to see available models.")
+        return
+    
+    # Store user's preference
+    user_models[ctx.author.id] = model_name
+    await ctx.send(f"✅ Your model is now set to `{model_name}`")
+
+@bot.command(name="info")
+async def info(ctx):
+    """Show available commands and usage."""
+    info_text = """**Bot Commands:**
+
+`!hello` - Get a greeting
+`!models` - List all available Ollama models
+`!setmodel <name>` - Set your preferred model
+`!ask <prompt>` - Ask a question using your model
+`!info` - Show this help message"""
+    
+    await ctx.send(info_text)
+
 @bot.command(name="ask")
 async def ask_ollama(ctx, *, prompt: str):
     """Query Ollama with your prompt."""
     await ctx.send("Thinking... 🤖")
-    model_name = ollama_model
+    
+    # Use user's preferred model, or default from env
+    model_name = user_models.get(ctx.author.id, ollama_model)
 
     result = call_ollama_chat(model_name, prompt)
 
