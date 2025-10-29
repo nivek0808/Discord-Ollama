@@ -7,6 +7,8 @@ import requests
 
 load_dotenv()
 token = os.getenv('DISCORD_TOKEN')
+ollama_url = os.getenv('OLLAMA_URL', 'http://localhost:11434')
+ollama_model = os.getenv('OLLAMA_MODEL', 'gpt-oss')
 
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
 intents = discord.Intents.default()
@@ -17,7 +19,7 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 # === Ollama Interaction ===
 def call_ollama_chat(model_name, prompt):
-    url = "http://192.168.1.190:30068/api/generate"
+    url = f"{ollama_url}/api/generate"
     payload = {
         "model": model_name,
         "prompt": f"/no_think\n{prompt}",
@@ -67,9 +69,9 @@ async def hello(ctx):
 # Ollama Interaction
 @bot.command(name="ask")
 async def ask_ollama(ctx, *, prompt: str):
-    """Query Ollama Qwen 0.6B with your prompt."""
+    """Query Ollama with your prompt."""
     await ctx.send("Thinking... 🤖")
-    model_name = "qwen3:0.6b"
+    model_name = ollama_model
 
     result = call_ollama_chat(model_name, prompt)
 
