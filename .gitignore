@@ -18,4 +18,5 @@ uv.lock
 .vscode/
 
 # Specific logs
-discord.log
+discord.log*
+*.egg-info/
