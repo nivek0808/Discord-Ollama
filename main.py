@@ -43,12 +43,19 @@ def call_ollama_chat(model_name, prompt):
     }
 
     try:
-        response = requests.post(url, json=payload, timeout=30)
+        response = requests.post(url, json=payload, timeout=120)
         response.raise_for_status()
         result = response.json().get("response", "No response.")
         if "</think>" in result:
             result = result.split("</think>", 1)[1].strip()
         return result
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 500:
+            # Check if it's a vision model
+            if "vl" in model_name.lower() or "vision" in model_name.lower():
+                return "⚠️ This is a vision model that requires images. Text-only queries are not supported."
+            return f"Server error: The model may not support this type of request."
+        return f"Error contacting Ollama: {e}"
     except Exception as e:
         print(f"Ollama Error: {e}")
         return f"Error contacting Ollama: {e}"
@@ -90,7 +97,12 @@ async def list_models(ctx):
         name = model.get("name", "unknown")
         size_bytes = model.get("size", 0)
         size_gb = size_bytes / (1024**3)  # Convert to GB
-        model_list += f"• `{name}` ({size_gb:.1f} GB)\n"
+        
+        # Check if it's a vision model
+        is_vision = "vl" in name.lower() or "vision" in name.lower()
+        vision_tag = " 🖼️ (Vision)" if is_vision else ""
+        
+        model_list += f"• `{name}` ({size_gb:.1f} GB){vision_tag}\n"
     
     # Add current model indicator
     model_list += f"\n**Current model:** `{ollama_model}`"
@@ -124,7 +136,9 @@ async def info(ctx):
 `!models` - List all available Ollama models
 `!setmodel <name>` - Set your preferred model
 `!ask <prompt>` - Ask a question using your model
-`!info` - Show this help message"""
+`!info` - Show this help message
+
+**Note:** Larger models may take 1-2 minutes to respond."""
     
     await ctx.send(info_text)
 
