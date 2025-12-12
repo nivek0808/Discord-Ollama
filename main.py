@@ -5,12 +5,16 @@ from dotenv import load_dotenv
 import os
 import aiohttp
 import re
+import json
 
 # --- Configuration ---
 load_dotenv()
 token = os.getenv('DISCORD_TOKEN')
 ollama_url = os.getenv('OLLAMA_URL', 'http://localhost:11434')
 ollama_model = os.getenv('OLLAMA_MODEL', 'gpt-oss')
+
+DATA_FILE = 'bot_data.json'
+MAX_CONTEXT_TOKENS = 4096  # Conservative limit for most models
 
 # --- Logging and Intents ---
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
@@ -27,7 +31,6 @@ user_models = {}
 # Store user conversation history (user_id -> list of messages)
 # Each message is a dict: {"role": "user"/"assistant", "content": "text"}
 user_history = {}
-MAX_HISTORY = 10 # Number of exchanges (user + assistant)
 
 # Store user multi-message preferences (user_id -> bool)
 user_split_messages = {}
@@ -35,6 +38,44 @@ user_split_messages = {}
 # Store user history preference (user_id -> bool)
 # Default is False (History OFF)
 user_history_enabled = {}
+
+# --- Persistence Functions ---
+
+def save_data():
+    """Save bot state to a JSON file."""
+    data = {
+        "user_models": user_models,
+        "user_history": user_history,
+        "user_split_messages": user_split_messages,
+        "user_history_enabled": user_history_enabled
+    }
+    try:
+        with open(DATA_FILE, 'w') as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"Error saving data: {e}")
+
+def load_data():
+    """Load bot state from a JSON file."""
+    global user_models, user_history, user_split_messages, user_history_enabled
+    if not os.path.exists(DATA_FILE):
+        return
+
+    try:
+        with open(DATA_FILE, 'r') as f:
+            data = json.load(f)
+            # Convert string keys back to integers (JSON keys are always strings)
+            user_models = {int(k): v for k, v in data.get("user_models", {}).items()}
+            user_history = {int(k): v for k, v in data.get("user_history", {}).items()}
+            user_split_messages = {int(k): v for k, v in data.get("user_split_messages", {}).items()}
+            user_history_enabled = {int(k): v for k, v in data.get("user_history_enabled", {}).items()}
+            print("Data loaded successfully.")
+    except Exception as e:
+        print(f"Error loading data: {e}")
+
+def estimate_tokens(text):
+    """Estimate token count (approx 3.5 chars per token)."""
+    return len(text) / 3.5
 
 # === Ollama Interaction ===
 
@@ -106,6 +147,7 @@ async def call_ollama_chat(model_name, prompt, history=None):
 
 @bot.event
 async def on_ready():
+    load_data()
     print(f"We are ready to go in, {bot.user.name}")
 
 @bot.event
@@ -155,12 +197,14 @@ async def set_model(ctx, model_name: str):
         return
     
     user_models[ctx.author.id] = model_name
+    save_data()
     await ctx.send(f"✅ Your model is now set to `{model_name}`")
 
 @bot.command(name="info")
 async def info(ctx):
     """Show available commands and usage."""
-    info_text = """**Bot Commands:**
+    info_text = """
+**Bot Commands:**
 
 `!hello` - Get a greeting
 `!models` - List all available Ollama models
@@ -171,6 +215,7 @@ async def info(ctx):
 `!split [on/off]` - Toggle long response splitting (Default: ON)
 `!info` - Show this help message
 
+**Context Bar:** [████░░░░░░] shows token usage
 **Note:** Larger models may take 1-2 minutes to respond."""
     
     await ctx.send(info_text)
@@ -181,6 +226,7 @@ async def clear_history(ctx):
     user_id = ctx.author.id
     if user_id in user_history:
         del user_history[user_id]
+        save_data()
         await ctx.send("🗑️ Your conversation history has been cleared!")
     else:
         await ctx.send("You don't have any conversation history to clear.")
@@ -198,9 +244,11 @@ async def toggle_history(ctx, mode: str = None):
 
     if mode.lower() == "on":
         user_history_enabled[user_id] = True
-        await ctx.send("✅ Conversation history enabled! I will remember the last 10 exchanges.")
+        save_data()
+        await ctx.send("✅ Conversation history enabled! I will remember context up to 4k tokens.")
     elif mode.lower() == "off":
         user_history_enabled[user_id] = False
+        save_data()
         await ctx.send("✅ Conversation history disabled! Each question will be treated independently.")
     else:
         await ctx.send("Usage: `!history on` or `!history off`")
@@ -219,19 +267,22 @@ async def toggle_split(ctx, mode: str = None):
     
     if mode.lower() == "on":
         user_split_messages[user_id] = True
+        save_data()
         await ctx.send("✅ Multi-message mode enabled! Long responses will be split into multiple messages.")
     elif mode.lower() == "off":
         user_split_messages[user_id] = False
+        save_data()
         await ctx.send("✅ Multi-message mode disabled! Long responses will be truncated.")
     else:
         await ctx.send("Usage: `!split on` or `!split off`")
 
-def get_context_bar(current, maximum):
-    """Generate a visual context indicator."""
-    filled = int((current / maximum) * 10)
+def get_context_bar(current_tokens, max_tokens):
+    """Generate a visual context indicator based on tokens."""
+    filled = int((current_tokens / max_tokens) * 10)
+    filled = min(filled, 10) # Clamp to 10
     empty = 10 - filled
     bar = "█" * filled + "░" * empty
-    return f"[{bar}] {current}/{maximum}"
+    return f"[{bar}] {int(current_tokens)}/{max_tokens} toks"
 
 @bot.command(name="ask")
 async def ask_ollama(ctx, *, prompt: str):
@@ -241,20 +292,41 @@ async def ask_ollama(ctx, *, prompt: str):
     # Check if history is enabled for this user (Default: False)
     is_history_on = user_history_enabled.get(user_id, False)
     
+    context_messages = []
+    current_tokens = 0
+    prompt_tokens = estimate_tokens(prompt)
+    
     if is_history_on:
-        history = user_history.get(user_id, [])
-        # Show context bar (divide by 2 to show exchange count)
-        context_bar = get_context_bar(len(history) // 2, MAX_HISTORY)
+        full_history = user_history.get(user_id, [])
+        
+        # Smart Context: Select recent messages that fit in token budget
+        # We process in reverse (newest first) to ensure we keep the latest context
+        budget = MAX_CONTEXT_TOKENS - prompt_tokens - 500 # Reserve 500 for system prompt + buffer
+        
+        temp_context = []
+        for msg in reversed(full_history):
+            msg_tokens = estimate_tokens(msg['content'])
+            if current_tokens + msg_tokens <= budget:
+                temp_context.append(msg)
+                current_tokens += msg_tokens
+            else:
+                break
+        
+        context_messages = list(reversed(temp_context))
+        
+        # Show context bar (History + Current Prompt)
+        display_tokens = current_tokens + prompt_tokens
+        context_bar = get_context_bar(display_tokens, MAX_CONTEXT_TOKENS)
         status_msg = f"Thinking... 🤖 {context_bar}"
     else:
-        history = None
         status_msg = "Thinking... 🤖 (History: OFF)"
 
     await ctx.send(status_msg)
     
     model_name = user_models.get(user_id, ollama_model)
 
-    result = await call_ollama_chat(model_name, prompt, history)
+    # Call Ollama with the selected context
+    result = await call_ollama_chat(model_name, prompt, context_messages)
 
     # Only update history if enabled
     if is_history_on:
@@ -264,9 +336,13 @@ async def ask_ollama(ctx, *, prompt: str):
         user_history[user_id].append({"role": "user", "content": prompt})
         user_history[user_id].append({"role": "assistant", "content": result})
         
-        # Trim history if it exceeds max
-        if len(user_history[user_id]) > MAX_HISTORY * 2:
-            user_history[user_id] = user_history[user_id][-(MAX_HISTORY * 2):]
+        # Pruning happens at read-time, so we can just append. 
+        # But to keep JSON file size sane, we can still hard-limit the stored list
+        # to something generous like 50 items.
+        if len(user_history[user_id]) > 50:
+             user_history[user_id] = user_history[user_id][-50:]
+             
+        save_data()
 
     # Check if user wants messages split (default is now True)
     split_enabled = user_split_messages.get(user_id, True) 
