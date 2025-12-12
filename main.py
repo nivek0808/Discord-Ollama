@@ -59,6 +59,7 @@ def load_data():
     """Load bot state from a JSON file."""
     global user_models, user_history, user_split_messages, user_history_enabled
     if not os.path.exists(DATA_FILE):
+        print("No data file found. Starting with empty state.")
         return
 
     try:

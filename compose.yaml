@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  discord-ollama:
+    build: .
+    container_name: discord-ollama
+    restart: unless-stopped
+    # Persist the bot data
+    volumes:
+      - ./bot_data.json:/app/bot_data.json
+    environment:
+      # Replace with your token
+      - DISCORD_TOKEN=your_token_here
+      # Point to Ollama on the host machine
+      - OLLAMA_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=gpt-oss
+    # Allow container to access the host machine (where Ollama likely runs)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

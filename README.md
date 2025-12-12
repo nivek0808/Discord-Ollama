@@ -5,7 +5,7 @@ A powerful Discord bot integrated with Ollama, allowing users to chat with local
 ## 🚀 Features
 
 *   **AI-Powered Chat:** Query local Ollama models directly from Discord.
-*   **Context Awareness:** Optionally remembers the last 10 exchanges (Default: OFF).
+*   **Context Awareness:** Optionally remembers the last ~4000 tokens of conversation (Default: OFF).
 *   **Multi-Model Support:** Users can switch between any available model on the server.
 *   **Smart Formatting:** Automatically splits long AI responses into multiple Discord messages.
 *   **User Preferences:** Remembers which model each user prefers.
@@ -28,9 +28,43 @@ A powerful Discord bot integrated with Ollama, allowing users to chat with local
 
 ---
 
-## 🛠️ Installation & Setup
+## 🐳 Docker Deployment (Recommended)
 
-Follow these steps to get the bot running on your machine.
+You can easily deploy this bot using Docker or Dockge.
+
+### 1. Requirements
+*   A running instance of [Ollama](https://ollama.com/) (accessible via network).
+
+### 2. Docker Compose
+Create a `compose.yaml` file:
+
+```yaml
+version: '3.8'
+
+services:
+  discord-ollama:
+    image: your-dockerhub-username/discord-ollama:latest # Or build locally
+    container_name: discord-ollama
+    restart: unless-stopped
+    volumes:
+      - ./bot_data.json:/app/bot_data.json # Persist user data
+    environment:
+      - DISCORD_TOKEN=your_token_here
+      - OLLAMA_URL=http://host.docker.internal:11434 # Point to your Ollama instance
+      - OLLAMA_MODEL=llama3
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+```
+
+### 3. Build & Push (If hosting on DockerHub)
+```bash
+docker build -t your-username/discord-ollama .
+docker push your-username/discord-ollama
+```
+
+---
+
+## 🛠️ Manual Installation & Setup
 
 ### 1. Prerequisites
 *   **Python 3.11+**
@@ -48,53 +82,25 @@ Create a `.env` file in the project root:
 ```bash
 touch .env
 ```
-Add the following content (replace `your_discord_token`):
+Add the following content:
 ```env
-# Discord Bot Token (Required)
-DISCORD_TOKEN=your_discord_token_here
-
-# Ollama Configuration
+DISCORD_TOKEN=your_token_here
 OLLAMA_URL=http://localhost:11434
-OLLAMA_MODEL=llama3  # Default fallback model
+OLLAMA_MODEL=llama3
 ```
 
-### 4. Set Up Virtual Environment (using `uv`)
-We recommend using `uv` for fast package management, but standard `pip` works too.
-
-**Option A: Using `uv` (Recommended)**
+### 4. Install Dependencies
 ```bash
-# Install uv (if not already installed)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-source $HOME/.local/bin/env
-
-# Create virtual environment and install dependencies
-uv venv
-source .venv/bin/activate
+# Using uv (Recommended)
+uv venv && source .venv/bin/activate
 uv pip install .
-```
 
-**Option B: Using standard `pip`**
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
+# Or using pip
+python3 -m venv .venv && source .venv/bin/activate
 pip install .
 ```
 
----
-
-## ▶️ Running the Bot
-
-Once everything is set up, start the bot:
-
+### 5. Run
 ```bash
-source .venv/bin/activate
 python main.py
 ```
-
-You should see:
-> `We are ready to go in, <BotName>`
-
----
-
-## 🤝 Contributing
-Feel free to fork this project, submit PRs, or open issues if you find bugs!
