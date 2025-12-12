@@ -32,6 +32,10 @@ MAX_HISTORY = 10 # Number of exchanges (user + assistant)
 # Store user multi-message preferences (user_id -> bool)
 user_split_messages = {}
 
+# Store user history preference (user_id -> bool)
+# Default is False (History OFF)
+user_history_enabled = {}
+
 # === Ollama Interaction ===
 
 async def get_available_models():
@@ -161,12 +165,12 @@ async def info(ctx):
 `!hello` - Get a greeting
 `!models` - List all available Ollama models
 `!setmodel <name>` - Set your preferred model
-`!ask <prompt>` - Ask a question (remembers last 10 exchanges)
+`!ask <prompt>` - Ask a question
+`!history [on/off]` - Enable/Disable conversation history (Default: OFF)
 `!clear` - Clear your conversation history
 `!split [on/off]` - Toggle long response splitting (Default: ON)
 `!info` - Show this help message
 
-**Context Bar:** [████░░░░░░] shows 4/10 exchanges used
 **Note:** Larger models may take 1-2 minutes to respond."""
     
     await ctx.send(info_text)
@@ -180,6 +184,26 @@ async def clear_history(ctx):
         await ctx.send("🗑️ Your conversation history has been cleared!")
     else:
         await ctx.send("You don't have any conversation history to clear.")
+
+@bot.command(name="history")
+async def toggle_history(ctx, mode: str = None):
+    """Toggle conversation history tracking."""
+    user_id = ctx.author.id
+    
+    if mode is None:
+        current = user_history_enabled.get(user_id, False)
+        status = "enabled" if current else "disabled"
+        await ctx.send(f"Conversation history is currently **{status}**.\nUse `!history on` or `!history off` to change.")
+        return
+
+    if mode.lower() == "on":
+        user_history_enabled[user_id] = True
+        await ctx.send("✅ Conversation history enabled! I will remember the last 10 exchanges.")
+    elif mode.lower() == "off":
+        user_history_enabled[user_id] = False
+        await ctx.send("✅ Conversation history disabled! Each question will be treated independently.")
+    else:
+        await ctx.send("Usage: `!history on` or `!history off`")
 
 @bot.command(name="split")
 async def toggle_split(ctx, mode: str = None):
@@ -214,26 +238,35 @@ async def ask_ollama(ctx, *, prompt: str):
     """Query Ollama with your prompt."""
     user_id = ctx.author.id
     
-    history = user_history.get(user_id, [])
+    # Check if history is enabled for this user (Default: False)
+    is_history_on = user_history_enabled.get(user_id, False)
     
-    # Show context bar (divide by 2 to show exchange count)
-    context_bar = get_context_bar(len(history) // 2, MAX_HISTORY)
-    await ctx.send(f"Thinking... 🤖 {context_bar}")
+    if is_history_on:
+        history = user_history.get(user_id, [])
+        # Show context bar (divide by 2 to show exchange count)
+        context_bar = get_context_bar(len(history) // 2, MAX_HISTORY)
+        status_msg = f"Thinking... 🤖 {context_bar}"
+    else:
+        history = None
+        status_msg = "Thinking... 🤖 (History: OFF)"
+
+    await ctx.send(status_msg)
     
     model_name = user_models.get(user_id, ollama_model)
 
     result = await call_ollama_chat(model_name, prompt, history)
 
-    # Add to history
-    if user_id not in user_history:
-        user_history[user_id] = []
-    
-    user_history[user_id].append({"role": "user", "content": prompt})
-    user_history[user_id].append({"role": "assistant", "content": result})
-    
-    # Trim history if it exceeds max (MAX_HISTORY * 2 because we store user/assist pairs)
-    if len(user_history[user_id]) > MAX_HISTORY * 2:
-        user_history[user_id] = user_history[user_id][-(MAX_HISTORY * 2):]
+    # Only update history if enabled
+    if is_history_on:
+        if user_id not in user_history:
+            user_history[user_id] = []
+        
+        user_history[user_id].append({"role": "user", "content": prompt})
+        user_history[user_id].append({"role": "assistant", "content": result})
+        
+        # Trim history if it exceeds max
+        if len(user_history[user_id]) > MAX_HISTORY * 2:
+            user_history[user_id] = user_history[user_id][-(MAX_HISTORY * 2):]
 
     # Check if user wants messages split (default is now True)
     split_enabled = user_split_messages.get(user_id, True) 

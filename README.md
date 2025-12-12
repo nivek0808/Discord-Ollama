@@ -5,7 +5,7 @@ A powerful Discord bot integrated with Ollama, allowing users to chat with local
 ## 🚀 Features
 
 *   **AI-Powered Chat:** Query local Ollama models directly from Discord.
-*   **Context Awareness:** Remembers the last 10 exchanges for more natural conversations.
+*   **Context Awareness:** Optionally remembers the last 10 exchanges (Default: OFF).
 *   **Multi-Model Support:** Users can switch between any available model on the server.
 *   **Smart Formatting:** Automatically splits long AI responses into multiple Discord messages.
 *   **User Preferences:** Remembers which model each user prefers.
@@ -20,6 +20,7 @@ A powerful Discord bot integrated with Ollama, allowing users to chat with local
 | `!ask <prompt>` | Ask a question to your selected AI model. |
 | `!models` | List all available models on the Ollama server (shows size & vision support). |
 | `!setmodel <name>` | Set your preferred model (e.g., `!setmodel llama3`). |
+| `!history [on/off]` | Toggle conversation history (Default: OFF). |
 | `!clear` | Clear your conversation history with the bot. |
 | `!split [on/off]` | Toggle automatic splitting of long messages (Default: ON). |
 | `!hello` | Get a simple greeting to test connection. |
